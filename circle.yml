@@ -1,0 +1,51 @@
+version: 2.0
+jobs:
+  build:
+    docker:
+      - image: docker@sha256:7e05c61431b7aed3bb033b1c3a43a99dc3693a166158a460cfc42f1c6bcf6979   # docker:17.03.2-ce-git
+        environment:
+          - DOCKER_IMAGE_NAME: miovision/electron-builder
+    working_directory: /electron-builder
+    branches:
+      only:
+        - master
+    steps:
+      - checkout
+      - setup_remote_docker
+
+      - restore_cache:
+          keys:
+            - v1-{{ .Branch }}
+          paths:
+            - /caches/electron-builder.tar
+
+      - run:
+          name: Load Docker image layer cache
+          command: |
+            set +o pipefail
+            docker load -i /caches/electron-builder.tar | true
+
+      - run:
+          name: Build customer container for electron-builder
+          command: |
+            docker build --cache-from="${DOCKER_IMAGE_NAME}" -t "${DOCKER_IMAGE_NAME}:latest" .
+
+      - run:
+          name: Save Docker image layer cache
+          command: |
+            mkdir -p /caches | true
+            docker save -o /caches/electron-builder.tar "${DOCKER_IMAGE_NAME}"
+
+      - save_cache:
+          key: v1-{{ .Branch }}-{{ epoch }}
+          paths:
+            - /caches/electron-builder.tar
+
+      - deploy:
+          name: Push Docker image to Docker Hub
+          command: |
+            if [ "${CIRCLE_BRANCH}" == "master" ]; then
+              docker login -u ${DOCKER_USER} -p ${DOCKER_PASS}
+              docker tag ${DOCKER_IMAGE_NAME} ${DOCKER_IMAGE_NAME}
+              docker push ${DOCKER_IMAGE_NAME}
+            fi
